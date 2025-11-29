@@ -40,9 +40,69 @@ const examScheduleSchema = new mongoose.Schema({
   },
   assignmentType: {
     type: String,
-    enum: ['random', 'manual'],
+    enum: ['random', 'manual', 'mentor_scheduled'],
     default: 'manual'
   },
+  // Mentor scheduling configurations
+  mentorSchedules: [{
+    mentor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    totalTeams: {
+      type: Number,
+      required: true
+    },
+    teamDuration: {
+      type: Number, // Duration per team in minutes
+      required: true
+    },
+    bufferTime: {
+      type: Number, // Buffer between teams in minutes
+      default: 0
+    },
+    scheduleDate: {
+      type: Date,
+      required: true
+    },
+    startTime: {
+      type: String, // Format: "HH:MM"
+      required: true
+    },
+    endTime: {
+      type: String, // Format: "HH:MM"
+      required: true
+    },
+    venue: String,
+    meetLink: String,
+    mode: {
+      type: String,
+      enum: ['online', 'offline'],
+      default: 'offline'
+    },
+    slots: [{
+      team: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Team'
+      },
+      startTime: String,
+      endTime: String,
+      slotNumber: Number,
+      status: {
+        type: String,
+        enum: ['scheduled', 'completed', 'cancelled'],
+        default: 'scheduled'
+      },
+      score: Number,
+      feedback: String
+    }],
+    isScheduled: {
+      type: Boolean,
+      default: false
+    },
+    scheduledAt: Date
+  }],
   slots: [{
     mentor: {
       type: mongoose.Schema.Types.ObjectId,

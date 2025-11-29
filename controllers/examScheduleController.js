@@ -780,3 +780,537 @@ exports.getTeamExamSchedule = async (req, res) => {
     });
   }
 };
+
+// ============================================
+// MENTOR SCHEDULING METHODS
+// ============================================
+
+// @desc    Create mentor schedule configuration
+// @route   POST /api/exam-schedules/:id/mentor-schedule
+// @access  Mentor
+exports.createMentorSchedule = async (req, res) => {
+  try {
+    const {
+      totalTeams,
+      teamDuration,
+      bufferTime,
+      scheduleDate,
+      startTime,
+      endTime,
+      venue,
+      meetLink,
+      mode
+    } = req.body;
+
+    const examSchedule = await ExamSchedule.findById(req.params.id);
+
+    if (!examSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam schedule not found'
+      });
+    }
+
+    // Check if mentor schedule already exists for this mentor
+    const existingSchedule = examSchedule.mentorSchedules.find(
+      ms => ms.mentor.toString() === req.user._id.toString()
+    );
+
+    if (existingSchedule) {
+      return res.status(400).json({
+        success: false,
+        message: 'You already have a schedule for this exam. Use update instead.'
+      });
+    }
+
+    // Calculate total time needed
+    const totalTimeNeeded = (totalTeams * teamDuration) + ((totalTeams - 1) * bufferTime);
+    
+    // Parse time strings to calculate available time
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    const availableTime = ((endHour * 60) + endMin) - ((startHour * 60) + startMin);
+
+    if (totalTimeNeeded > availableTime) {
+      return res.status(400).json({
+        success: false,
+        message: `Total time needed (${totalTimeNeeded} min) exceeds available time (${availableTime} min). Please adjust end time or reduce teams/duration.`,
+        totalTimeNeeded,
+        availableTime
+      });
+    }
+
+    // Create mentor schedule
+    const mentorSchedule = {
+      mentor: req.user._id,
+      totalTeams,
+      teamDuration,
+      bufferTime: bufferTime || 0,
+      scheduleDate,
+      startTime,
+      endTime,
+      venue,
+      meetLink,
+      mode: mode || 'offline',
+      slots: [],
+      isScheduled: false
+    };
+
+    examSchedule.mentorSchedules.push(mentorSchedule);
+    await examSchedule.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Mentor schedule configuration created successfully',
+      schedule: mentorSchedule,
+      availableTime,
+      totalTimeNeeded
+    });
+
+  } catch (error) {
+    console.error('Create mentor schedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating mentor schedule',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update mentor schedule configuration
+// @route   PUT /api/exam-schedules/:id/mentor-schedule
+// @access  Mentor
+exports.updateMentorSchedule = async (req, res) => {
+  try {
+    const {
+      totalTeams,
+      teamDuration,
+      bufferTime,
+      scheduleDate,
+      startTime,
+      endTime,
+      venue,
+      meetLink,
+      mode
+    } = req.body;
+
+    const examSchedule = await ExamSchedule.findById(req.params.id);
+
+    if (!examSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam schedule not found'
+      });
+    }
+
+    // Find mentor's schedule
+    const mentorScheduleIndex = examSchedule.mentorSchedules.findIndex(
+      ms => ms.mentor.toString() === req.user._id.toString()
+    );
+
+    if (mentorScheduleIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Mentor schedule not found. Create one first.'
+      });
+    }
+
+    const mentorSchedule = examSchedule.mentorSchedules[mentorScheduleIndex];
+
+    // If already scheduled, don't allow certain changes
+    if (mentorSchedule.isScheduled && mentorSchedule.slots.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Schedule already has team assignments. Please clear assignments before modifying configuration.'
+      });
+    }
+
+    // Calculate total time needed
+    const newTotalTeams = totalTeams !== undefined ? totalTeams : mentorSchedule.totalTeams;
+    const newTeamDuration = teamDuration !== undefined ? teamDuration : mentorSchedule.teamDuration;
+    const newBufferTime = bufferTime !== undefined ? bufferTime : mentorSchedule.bufferTime;
+    const newStartTime = startTime || mentorSchedule.startTime;
+    const newEndTime = endTime || mentorSchedule.endTime;
+
+    const totalTimeNeeded = (newTotalTeams * newTeamDuration) + ((newTotalTeams - 1) * newBufferTime);
+    
+    // Parse time strings
+    const [startHour, startMin] = newStartTime.split(':').map(Number);
+    const [endHour, endMin] = newEndTime.split(':').map(Number);
+    const availableTime = ((endHour * 60) + endMin) - ((startHour * 60) + startMin);
+
+    if (totalTimeNeeded > availableTime) {
+      return res.status(400).json({
+        success: false,
+        message: `Total time needed (${totalTimeNeeded} min) exceeds available time (${availableTime} min).`,
+        totalTimeNeeded,
+        availableTime
+      });
+    }
+
+    // Update fields
+    if (totalTeams !== undefined) mentorSchedule.totalTeams = totalTeams;
+    if (teamDuration !== undefined) mentorSchedule.teamDuration = teamDuration;
+    if (bufferTime !== undefined) mentorSchedule.bufferTime = bufferTime;
+    if (scheduleDate) mentorSchedule.scheduleDate = scheduleDate;
+    if (startTime) mentorSchedule.startTime = startTime;
+    if (endTime) mentorSchedule.endTime = endTime;
+    if (venue) mentorSchedule.venue = venue;
+    if (meetLink) mentorSchedule.meetLink = meetLink;
+    if (mode) mentorSchedule.mode = mode;
+
+    await examSchedule.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Mentor schedule updated successfully',
+      schedule: mentorSchedule
+    });
+
+  } catch (error) {
+    console.error('Update mentor schedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating mentor schedule',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get available teams for mentor scheduling
+// @route   GET /api/exam-schedules/:id/available-teams
+// @access  Mentor
+exports.getAvailableTeams = async (req, res) => {
+  try {
+    const examSchedule = await ExamSchedule.findById(req.params.id)
+      .populate('mentorSchedules.slots.team', 'teamName teamId projectTitle');
+
+    if (!examSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam schedule not found'
+      });
+    }
+
+    // Get all teams
+    const allTeams = await Team.find({}).select('teamName teamId projectTitle members');
+
+    // Get already assigned team IDs across all mentor schedules
+    const assignedTeamIds = [];
+    examSchedule.mentorSchedules.forEach(ms => {
+      ms.slots.forEach(slot => {
+        if (slot.team) {
+          assignedTeamIds.push(slot.team.toString());
+        }
+      });
+    });
+
+    // Filter available teams
+    const availableTeams = allTeams.filter(
+      team => !assignedTeamIds.includes(team._id.toString())
+    );
+
+    // Get mentor's team count from their mentorSchedules
+    const mentorSchedule = examSchedule.mentorSchedules.find(
+      ms => ms.mentor.toString() === req.user._id.toString()
+    );
+
+    res.status(200).json({
+      success: true,
+      teams: availableTeams,
+      totalAvailable: availableTeams.length,
+      totalAssigned: assignedTeamIds.length,
+      mentorConfig: mentorSchedule || null
+    });
+
+  } catch (error) {
+    console.error('Get available teams error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching available teams',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Random distribute teams to mentor's schedule slots
+// @route   POST /api/exam-schedules/:id/mentor-schedule/distribute-random
+// @access  Mentor
+exports.randomDistributeToMentorSlots = async (req, res) => {
+  try {
+    const examSchedule = await ExamSchedule.findById(req.params.id);
+
+    if (!examSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam schedule not found'
+      });
+    }
+
+    // Find mentor's schedule
+    const mentorScheduleIndex = examSchedule.mentorSchedules.findIndex(
+      ms => ms.mentor.toString() === req.user._id.toString()
+    );
+
+    if (mentorScheduleIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Mentor schedule configuration not found. Create one first.'
+      });
+    }
+
+    const mentorSchedule = examSchedule.mentorSchedules[mentorScheduleIndex];
+
+    // Get available teams
+    const allTeams = await Team.find({});
+    const assignedTeamIds = [];
+    examSchedule.mentorSchedules.forEach(ms => {
+      ms.slots.forEach(slot => {
+        if (slot.team) assignedTeamIds.push(slot.team.toString());
+      });
+    });
+
+    const availableTeams = allTeams.filter(
+      team => !assignedTeamIds.includes(team._id.toString())
+    );
+
+    if (availableTeams.length < mentorSchedule.totalTeams) {
+      return res.status(400).json({
+        success: false,
+        message: `Not enough available teams. Need ${mentorSchedule.totalTeams}, but only ${availableTeams.length} available.`
+      });
+    }
+
+    // Shuffle and select teams
+    const shuffled = availableTeams.sort(() => 0.5 - Math.random());
+    const selectedTeams = shuffled.slice(0, mentorSchedule.totalTeams);
+
+    // Generate time slots
+    const slots = [];
+    let currentTime = mentorSchedule.startTime;
+
+    for (let i = 0; i < selectedTeams.length; i++) {
+      const [hour, min] = currentTime.split(':').map(Number);
+      const totalMinutes = (hour * 60) + min;
+      const endMinutes = totalMinutes + mentorSchedule.teamDuration;
+      const endHour = Math.floor(endMinutes / 60);
+      const endMin = endMinutes % 60;
+      const endTime = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
+
+      slots.push({
+        team: selectedTeams[i]._id,
+        startTime: currentTime,
+        endTime: endTime,
+        slotNumber: i + 1,
+        status: 'scheduled'
+      });
+
+      // Calculate next start time (with buffer)
+      const nextMinutes = endMinutes + mentorSchedule.bufferTime;
+      const nextHour = Math.floor(nextMinutes / 60);
+      const nextMin = nextMinutes % 60;
+      currentTime = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
+    }
+
+    mentorSchedule.slots = slots;
+    mentorSchedule.isScheduled = true;
+    mentorSchedule.scheduledAt = new Date();
+
+    await examSchedule.save();
+
+    // Populate team details before sending response
+    await examSchedule.populate('mentorSchedules.slots.team', 'teamName teamId projectTitle');
+
+    res.status(200).json({
+      success: true,
+      message: 'Teams distributed randomly to slots successfully',
+      schedule: examSchedule.mentorSchedules[mentorScheduleIndex]
+    });
+
+  } catch (error) {
+    console.error('Random distribute error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error distributing teams',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Manually edit slot assignment
+// @route   PUT /api/exam-schedules/:id/mentor-schedule/slot/:slotId
+// @access  Mentor
+exports.manualEditMentorSlot = async (req, res) => {
+  try {
+    const { teamId, startTime, endTime } = req.body;
+
+    const examSchedule = await ExamSchedule.findById(req.params.id);
+
+    if (!examSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam schedule not found'
+      });
+    }
+
+    // Find mentor's schedule
+    const mentorScheduleIndex = examSchedule.mentorSchedules.findIndex(
+      ms => ms.mentor.toString() === req.user._id.toString()
+    );
+
+    if (mentorScheduleIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Mentor schedule not found'
+      });
+    }
+
+    const mentorSchedule = examSchedule.mentorSchedules[mentorScheduleIndex];
+    const slotIndex = mentorSchedule.slots.findIndex(
+      s => s._id.toString() === req.params.slotId
+    );
+
+    if (slotIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Slot not found'
+      });
+    }
+
+    // Update slot
+    if (teamId !== undefined) {
+      // Check if team is already assigned elsewhere
+      const isTeamAssigned = examSchedule.mentorSchedules.some(ms => 
+        ms.slots.some(s => 
+          s._id.toString() !== req.params.slotId && 
+          s.team && 
+          s.team.toString() === teamId
+        )
+      );
+
+      if (isTeamAssigned) {
+        return res.status(400).json({
+          success: false,
+          message: 'This team is already assigned to another slot'
+        });
+      }
+
+      mentorSchedule.slots[slotIndex].team = teamId || null;
+    }
+    
+    if (startTime) mentorSchedule.slots[slotIndex].startTime = startTime;
+    if (endTime) mentorSchedule.slots[slotIndex].endTime = endTime;
+
+    await examSchedule.save();
+    await examSchedule.populate('mentorSchedules.slots.team', 'teamName teamId projectTitle');
+
+    res.status(200).json({
+      success: true,
+      message: 'Slot updated successfully',
+      slot: mentorSchedule.slots[slotIndex]
+    });
+
+  } catch (error) {
+    console.error('Manual edit slot error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error editing slot',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get mentor's schedule details
+// @route   GET /api/exam-schedules/:id/mentor-schedule
+// @access  Mentor
+exports.getMentorSchedule = async (req, res) => {
+  try {
+    const examSchedule = await ExamSchedule.findById(req.params.id)
+      .populate('mentorSchedules.mentor', 'fullName email')
+      .populate('mentorSchedules.slots.team', 'teamName teamId projectTitle members');
+
+    if (!examSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam schedule not found'
+      });
+    }
+
+    // Find mentor's schedule
+    const mentorSchedule = examSchedule.mentorSchedules.find(
+      ms => ms.mentor._id.toString() === req.user._id.toString()
+    );
+
+    if (!mentorSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Mentor schedule not found',
+        hasSchedule: false
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      schedule: mentorSchedule,
+      examDetails: {
+        title: examSchedule.title,
+        examType: examSchedule.examType,
+        startDate: examSchedule.startDate,
+        endDate: examSchedule.endDate
+      }
+    });
+
+  } catch (error) {
+    console.error('Get mentor schedule error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching mentor schedule',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Clear mentor schedule slots (for re-distribution)
+// @route   DELETE /api/exam-schedules/:id/mentor-schedule/slots
+// @access  Mentor
+exports.clearMentorSlots = async (req, res) => {
+  try {
+    const examSchedule = await ExamSchedule.findById(req.params.id);
+
+    if (!examSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam schedule not found'
+      });
+    }
+
+    const mentorScheduleIndex = examSchedule.mentorSchedules.findIndex(
+      ms => ms.mentor.toString() === req.user._id.toString()
+    );
+
+    if (mentorScheduleIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Mentor schedule not found'
+      });
+    }
+
+    examSchedule.mentorSchedules[mentorScheduleIndex].slots = [];
+    examSchedule.mentorSchedules[mentorScheduleIndex].isScheduled = false;
+
+    await examSchedule.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Schedule slots cleared successfully'
+    });
+
+  } catch (error) {
+    console.error('Clear slots error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error clearing slots',
+      error: error.message
+    });
+  }
+};
