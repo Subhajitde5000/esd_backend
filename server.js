@@ -163,6 +163,7 @@ app.use('/api/milestone', require('./routes/milestone'));
 app.use('/api/student-milestone', require('./routes/studentMilestone'));
 app.use('/api/events', require('./routes/event'));
 app.use('/api/exam-schedules', require('./routes/examSchedule'));
+app.use('/api/course-syllabus', require('./routes/courseSyllabus'));
 
 // Health check route
 app.get('/api/health', (req, res) => {

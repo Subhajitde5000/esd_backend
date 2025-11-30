@@ -9,7 +9,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Cloudinary storage for multer
+// Cloudinary storage for user profile images
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -19,6 +19,17 @@ const storage = new CloudinaryStorage({
   },
 });
 
-const upload = multer({ storage });
+// Cloudinary storage for course syllabus files
+const syllabusStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'course-syllabus',
+    allowed_formats: ['pdf', 'doc', 'docx', 'ppt', 'pptx'],
+    resource_type: 'raw',
+  },
+});
 
-module.exports = { cloudinary, upload };
+const upload = multer({ storage });
+const syllabusUpload = multer({ storage: syllabusStorage });
+
+module.exports = { cloudinary, upload, syllabusUpload };
