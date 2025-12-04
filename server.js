@@ -164,6 +164,9 @@ app.use('/api/student-milestone', require('./routes/studentMilestone'));
 app.use('/api/events', require('./routes/event'));
 app.use('/api/exam-schedules', require('./routes/examSchedule'));
 app.use('/api/course-syllabus', require('./routes/courseSyllabus'));
+app.use('/api/attendance', require('./routes/attendance'));
+app.use('/api/mentor-feedback', require('./routes/mentorFeedback'));
+app.use('/api/question-parser', require('./routes/questionParser'));
 
 // Health check route
 app.get('/api/health', (req, res) => {

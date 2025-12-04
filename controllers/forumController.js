@@ -1,4 +1,5 @@
 const ForumPost = require('../models/ForumPost');
+const { verifyPostContent, verifyCommentContent } = require('../utils/contentModeration');
 
 // @desc    Get all forum posts with filters
 // @route   GET /api/forum/posts
@@ -100,6 +101,20 @@ exports.createPost = async (req, res) => {
   try {
     const { title, description, category, tags, image } = req.body;
     
+    // Verify content using Gemini AI
+    console.log('🔍 Moderating post content...');
+    const moderation = await verifyPostContent(title, description);
+    
+    if (!moderation.isAllowed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Post content violates community guidelines',
+        reason: moderation.reason,
+        suggestion: moderation.suggestion || '',
+        moderation: true,
+      });
+    }
+    
     const post = await ForumPost.create({
       author: req.user._id,
       title,
@@ -161,6 +176,23 @@ exports.updatePost = async (req, res) => {
     }
     
     const { title, description, category, tags, image } = req.body;
+    
+    // Verify updated content using Gemini AI
+    const updatedTitle = title || post.title;
+    const updatedDescription = description || post.description;
+    
+    console.log('🔍 Moderating updated post content...');
+    const moderation = await verifyPostContent(updatedTitle, updatedDescription);
+    
+    if (!moderation.isAllowed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Updated post content violates community guidelines',
+        reason: moderation.reason,
+        suggestion: moderation.suggestion || '',
+        moderation: true,
+      });
+    }
     
     if (title) post.title = title;
     if (description) post.description = description;
@@ -331,6 +363,20 @@ exports.addComment = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Comment content is required',
+      });
+    }
+    
+    // Verify comment content using Gemini AI
+    console.log('🔍 Moderating comment content...');
+    const moderation = await verifyCommentContent(content.trim());
+    
+    if (!moderation.isAllowed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Comment content violates community guidelines',
+        reason: moderation.reason,
+        suggestion: moderation.suggestion || '',
+        moderation: true,
       });
     }
     
